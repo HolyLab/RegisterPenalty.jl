@@ -382,7 +382,7 @@ function penalty!(g, λt::Real, ϕs::Vector{D}) where D<:GridDeformation
         gsize = (size(first(ϕs).u)..., length(ϕs))
         throw(DimensionMismatch("g's length $(length(g)) inconsistent with $gsize"))
     end
-    s = zero(eltype(D))
+    local s = zero(eltype(D))
     λt2 = λt/2
     for i = 1:length(ϕs)-1
         ϕ  = ϕs[i]
@@ -422,7 +422,7 @@ function penalty(λt::Real, ϕs::Vector{D}) where D<:GridDeformation
 end
 
 function RegisterDeformation.convert_to_fixed(::Type{GridDeformation{T,N,A,L}}, g::Array{T}) where {T,N,A,L}
-    reinterpret(SVector{N,T}, g, (div(length(g), N),))
+    reshape(reinterpret(SVector{N,T}, g), (div(length(g), N),))
 end
 
 function vec2ϕs(x::Array{T}, gridsize::NTuple{N,Int}, n, knots) where {T,N}
