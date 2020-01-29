@@ -263,7 +263,7 @@ end
 
 ### Affine-residual penalty
 """
-`p = AffinePenalty(knots, λ)` initializes data defining an
+`p = AffinePenalty(nodes, λ)` initializes data defining an
 affine-residual penalty. The penalty is defined in terms of a
 deformation's `u` displacements as
 ```
@@ -272,9 +272,9 @@ deformation's `u` displacements as
 where `{a_i}` comes from a least-squares fit of `{u_i}` to an
 affine transformation.
 
-When the deformation is defined on a regular grid, `knots` can be an
-NTuple of knot-vectors; otherwise, it should be an
-`ndims`-by-`npoints` matrix that stores the knot locations in columns.
+When the deformation is defined on a regular grid, `nodes` can be an
+NTuple of node-vectors; otherwise, it should be an
+`ndims`-by-`npoints` matrix that stores the node locations in columns.
 """
 mutable struct AffinePenalty{T,N} <: DeformationPenalty{T,N}
     F::Matrix{T}   # geometry data for the affine-residual penalty
@@ -282,30 +282,30 @@ mutable struct AffinePenalty{T,N} <: DeformationPenalty{T,N}
 
     AffinePenalty{T,N}(F::Matrix{T}, λ::T, _) where {T,N} = new{T,N}(F, λ)
 
-    function AffinePenalty{T,N}(knots::NTuple{N}, λ) where {T,N}
-        gridsize = map(length, knots)
+    function AffinePenalty{T,N}(nodes::NTuple{N}, λ) where {T,N}
+        gridsize = map(length, nodes)
         C = Matrix{Float64}(undef, prod(gridsize), N+1)
         i = 0
         for I in CartesianIndices(gridsize)
             C[i+=1, N+1] = 1
             for j = 1:N
-                C[i, j] = knots[j][I[j]]  # I[j]
+                C[i, j] = nodes[j][I[j]]  # I[j]
             end
         end
         F, _ = qr(C)
         new{T,N}(Array(F), λ)
     end
 
-    function AffinePenalty{T,N}(knots::AbstractMatrix, λ) where {T,N}
-        C = hcat(knots', ones(eltype(knots), size(knots, 2)))
+    function AffinePenalty{T,N}(nodes::AbstractMatrix, λ) where {T,N}
+        C = hcat(nodes', ones(eltype(nodes), size(nodes, 2)))
         F, _ = qr(C)
         new{T,N}(F, λ)
     end
 end
 
-AffinePenalty(knots::NTuple{N,V}, λ) where {V<:AbstractVector,N} = AffinePenalty{eltype(V),N}(knots, λ)
-AffinePenalty(knots::AbstractVector{V}, λ) where {V<:AbstractVector} = AffinePenalty{eltype(V),length(knots)}((knots...,), λ)
-AffinePenalty(knots::AbstractMatrix{T}, λ) where {T} = AffinePenalty{T,size(knots,1)}(knots, λ)
+AffinePenalty(nodes::NTuple{N,V}, λ) where {V<:AbstractVector,N} = AffinePenalty{eltype(V),N}(nodes, λ)
+AffinePenalty(nodes::AbstractVector{V}, λ) where {V<:AbstractVector} = AffinePenalty{eltype(V),length(nodes)}((nodes...,), λ)
+AffinePenalty(nodes::AbstractMatrix{T}, λ) where {T} = AffinePenalty{T,size(nodes,1)}(nodes, λ)
 
 Base.convert(::Type{AffinePenalty{T,N}}, ap::AffinePenalty) where {T,N} = AffinePenalty{T,N}(convert(Matrix{T}, ap.F), convert(T, ap.λ), 0)
 
@@ -425,10 +425,10 @@ function RegisterDeformation.convert_to_fixed(::Type{GridDeformation{T,N,A,L}}, 
     reshape(reinterpret(SVector{N,T}, g), (div(length(g), N),))
 end
 
-function vec2ϕs(x::Array{T}, gridsize::NTuple{N,Int}, n, knots) where {T,N}
+function vec2ϕs(x::Array{T}, gridsize::NTuple{N,Int}, n, nodes) where {T,N}
     xr = RegisterDeformation.convert_to_fixed(SVector{N,T}, x, (gridsize..., n))
     colons = ntuple(d->Colon(), N)::NTuple{N,Colon}
-    [GridDeformation(view(xr, colons..., i), knots) for i = 1:n]
+    [GridDeformation(view(xr, colons..., i), nodes) for i = 1:n]
 end
 
 """
