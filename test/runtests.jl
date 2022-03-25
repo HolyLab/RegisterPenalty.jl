@@ -1,5 +1,5 @@
 using Test, LinearAlgebra
-using DualNumbers, ForwardDiff, CoordinateTransformations, StaticArrays, Interpolations
+using ForwardDiff, CoordinateTransformations, StaticArrays, Interpolations
 #import BlockRegistration
 import RegisterPenalty
 using RegisterCore, RegisterDeformation
@@ -54,30 +54,14 @@ accuracy = 10 # for new isapprox method
     ϕ = GridDeformation(u, imgaxs)
     g = similar(ϕ.u)
     @inferred(RP.penalty!(g, dp, ϕ))
-    for i in CartesianIndices(gridsize)
-        for j = 1:2
-            ud = dual.(u)
-            ud[j,i] = dual(u[j,i], 1)
-            ϕd = GridDeformation(ud, imgaxs)
-            pd = RP.penalty!(nothing, dp, ϕd)
-            @test ≈(g[i][j], epsilon(pd), atol=100*eps()*accuracy)
-        end
-    end
+    @test ForwardDiff.gradient(utemp -> RP.penalty!(nothing, dp, GridDeformation(utemp, imgaxs)), u) ≈ reinterpret(reshape, eltype(u), g)
 
     # Random deformations with composition
     uold = randn(2, gridsize...)
     ϕ_old = interpolate(GridDeformation(uold, imgaxs))
     ϕ_c, g_c = compose(ϕ_old, ϕ)
     RP.penalty!(g, dp, ϕ_c, g_c)
-    for i in CartesianIndices(gridsize)
-        for j = 1:2
-            ud = dual.(u)
-            ud[j,i] = dual(u[j,i], 1)
-            ϕd = interpolate(GridDeformation(ud, imgaxs))
-            pd = RP.penalty!(nothing, dp, ϕ_old(ϕd))
-            @test ≈(g[i][j], epsilon(pd), atol=100*eps()*accuracy)
-        end
-    end
+    @test ForwardDiff.gradient(utemp -> RP.penalty!(nothing, dp, ϕ_old(interpolate(GridDeformation(utemp, imgaxs)))), u) ≈ reinterpret(reshape, eltype(u), g)
 end
 
 ################
@@ -203,26 +187,20 @@ end
         dp.λ = val0/p
         val = RP.penalty!(g, ϕ, identity, dp, mmis)
         @test val ≈ 2val0
-        for i in CartesianIndices(gridsize)
-            for idim = 1:nd
-                ud = convert(Array{Dual{Float64}}, u_raw)
-                ud[idim,i] = dual(u_raw[idim,i], 1)
-                vald = RP.penalty!(nothing, GridDeformation(ud, imgaxs), identity, dp, mmis)
-                @test ≈(g[i][idim], epsilon(vald), atol=1e-10*accuracy)
-            end
+        if nd == 1
+            @test ForwardDiff.gradient(utemp -> RP.penalty!(nothing, GridDeformation(utemp, imgaxs), identity, dp, mmis), u_raw) ≈ reshape(reinterpret(reshape, eltype(u_raw), g), 1, :)
+        else
+            @test ForwardDiff.gradient(utemp -> RP.penalty!(nothing, GridDeformation(utemp, imgaxs), identity, dp, mmis), u_raw) ≈ reinterpret(reshape, eltype(u_raw), g)
         end
 
         # Include uold
         uold = dr.*rand(nd, gridsize...) .+ minrange .- maxshift .- 1
         ϕ_old = interpolate(GridDeformation(uold, imgaxs))
         val = RP.penalty!(g, ϕ, ϕ_old, dp, mmis)
-        for i in CartesianIndices(gridsize)
-            for idim = 1:nd
-                ud = convert(Array{Dual{Float64}}, u_raw)
-                ud[idim,i] = dual(u_raw[idim,i], 1)
-                vald = RP.penalty!(nothing, GridDeformation(ud, imgaxs), ϕ_old, dp, mmis)
-                @test ≈(g[i][idim], epsilon(vald), atol=1e-12) # for new isapprox atol=1e-12
-            end
+        if nd == 1
+            @test ForwardDiff.gradient(utemp -> RP.penalty!(nothing, GridDeformation(utemp, imgaxs), ϕ_old, dp, mmis), u_raw) ≈ reshape(reinterpret(reshape, eltype(u_raw), g), 1, :)
+        else
+            @test ForwardDiff.gradient(utemp -> RP.penalty!(nothing, GridDeformation(utemp, imgaxs), ϕ_old, dp, mmis), u_raw) ≈ reinterpret(reshape, eltype(u_raw), g)
         end
 
         @test_throws ErrorException RP.penalty!(g, interpolate(ϕ), ϕ_old, dp, mmis)
