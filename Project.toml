@@ -22,7 +22,7 @@ Interpolations = "0.9, 0.10, 0.11, 0.12, 0.13"
 RegisterCore = "0.2.1, 0.2.2, 0.2.3, 0.2.4"
 RegisterDeformation = "0.3, 0.4"
 RegisterUtilities = "0.1"
-StaticArrays = "0.10, 0.11, 0.12, 1.4.3"
+StaticArrays = "0.10, 0.11, 0.12, 1"
 julia = "1.6, 1.7"
 
 [extras]
