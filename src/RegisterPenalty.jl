@@ -2,9 +2,33 @@
 
 module RegisterPenalty
 
-using Interpolations, StaticArrays, Base.Cartesian, LinearAlgebra
-using RegisterDeformation, RegisterCore, CenterIndexedArrays, CachedInterpolations
-using RegisterDeformation: convert_from_fixed, convert_to_fixed
+using CachedInterpolations: CachedInterpolations, CachedInterpolation
+using CenterIndexedArrays: CenterIndexedArrays, CenterIndexedArray
+using Interpolations:
+    Interpolations,
+    AbstractInterpolation,
+    BSpline,
+    Gridded,
+    InPlace,
+    Linear,
+    OnCell,
+    Quadratic,
+    Degree,
+    InterpolationType
+using LinearAlgebra: LinearAlgebra, qr
+using StaticArrays: StaticArrays, SVector
+using Base.Cartesian
+using RegisterCore: RegisterCore, ColonFun, MismatchArray, NumDenom, maxshift
+using RegisterDeformation:
+    RegisterDeformation,
+    AbstractDeformation,
+    GridDeformation,
+    compose,
+    interpolate!,
+    vecgradient!,
+    vecindex,
+    convert_from_fixed, # internal API, used intentionally
+    convert_to_fixed     # internal API, used intentionally
 
 export AffinePenalty, DeformationPenalty, penalty!, interpolate_mm!
 
@@ -93,7 +117,7 @@ end
 
 # Allow it to be called without StaticArrays
 function penalty!(g::Array{T}, ϕ, ϕ_old, dp::DeformationPenalty, mmis::AbstractArray, keep = trues(size(mmis))) where {T <: Number}
-    gf = RegisterDeformation.convert_to_fixed(g, (ndims(dp), size(ϕ.u)...))
+    gf = convert_to_fixed(g, (ndims(dp), size(ϕ.u)...))
     return penalty!(gf, ϕ, ϕ_old, dp, mmis, keep)
 end
 
@@ -117,7 +141,7 @@ end
 
 
 function penalty!(gs::Array{T}, ϕs::AbstractVector{D}, ϕs_old, dp::DeformationPenalty, λt::Number, mmis::AbstractArray, keep = trues(size(mmis))) where {T <: Number, D <: AbstractDeformation}
-    gf = RegisterDeformation.convert_to_fixed(gs, (ndims(dp), size(first(ϕs).u)..., length(ϕs)))
+    gf = convert_to_fixed(gs, (ndims(dp), size(first(ϕs).u)..., length(ϕs)))
     return penalty!(gf, ϕs, ϕs_old, dp, λt, mmis, keep)
 end
 
@@ -173,7 +197,7 @@ function penalty!(g, ϕ::AbstractDeformation, mmis::AbstractArray{M}, keep = tru
 end
 
 function penalty!(g::Array{Tg}, ϕ::AbstractDeformation, mmis::AbstractArray{M}, keep = trues(size(mmis))) where {Tg <: Number, M <: CenteredInterpolant}
-    gf = RegisterDeformation.convert_to_fixed(g, (ndims(ϕ), size(ϕ.u)...))
+    gf = convert_to_fixed(g, (ndims(ϕ), size(ϕ.u)...))
     return penalty!(gf, ϕ, mmis, keep)
 end
 
@@ -307,8 +331,8 @@ mutable struct AffinePenalty{T, N} <: DeformationPenalty{T, N}
     end
 end
 
-AffinePenalty(nodes::NTuple{N, V}, λ) where {V <: AbstractVector, N} = AffinePenalty{eltype(V), N}(nodes, λ)
-AffinePenalty(nodes::AbstractVector{V}, λ) where {V <: AbstractVector} = AffinePenalty{eltype(V), length(nodes)}((nodes...,), λ)
+AffinePenalty(nodes::NTuple{N, <:AbstractVector{T}}, λ) where {T, N} = AffinePenalty{T, N}(nodes, λ)
+AffinePenalty(nodes::AbstractVector{<:AbstractVector{T}}, λ) where {T} = AffinePenalty{T, length(nodes)}((nodes...,), λ)
 AffinePenalty(nodes::AbstractMatrix{T}, λ) where {T} = AffinePenalty{T, size(nodes, 1)}(nodes, λ)
 
 Base.convert(::Type{AffinePenalty{T, N}}, ap::AffinePenalty) where {T, N} = AffinePenalty{T, N}(convert(Matrix{T}, ap.F), convert(T, ap.λ), 0)
@@ -406,7 +430,7 @@ end
 function penalty!(g::Array{T}, λt::Real, ϕs::Vector{D}) where {T <: Number, D <: GridDeformation}
     N = ndims(first(ϕs))
     sz = size(first(ϕs).u)
-    gf = RegisterDeformation.convert_to_fixed(g, (N, sz..., length(ϕs)))
+    gf = convert_to_fixed(g, (N, sz..., length(ϕs)))
     return penalty!(gf, λt, ϕs)
 end
 
@@ -425,12 +449,8 @@ function penalty(λt::Real, ϕs::Vector{D}) where {D <: GridDeformation}
     return s
 end
 
-function RegisterDeformation.convert_to_fixed(::Type{GridDeformation{T, N, A, L}}, g::Array{T}) where {T, N, A, L}
-    return reshape(reinterpret(SVector{N, T}, g), (div(length(g), N),))
-end
-
 function vec2ϕs(x::Array{T}, gridsize::NTuple{N, Int}, n, nodes) where {T, N}
-    xr = RegisterDeformation.convert_to_fixed(SVector{N, T}, x, (gridsize..., n))
+    xr = convert_to_fixed(SVector{N, T}, x, (gridsize..., n))
     colons = ntuple(d -> Colon(), N)::NTuple{N, Colon}
     return [GridDeformation(view(xr, colons..., i), nodes) for i in 1:n]
 end
@@ -448,16 +468,16 @@ you want to specify the boundary condition (default is `InPlace()`).
 `mmis = interpolate_mm!(mms, order)` prepares the array-of-MismatchArrays
 `mms` for interpolation.
 """
-function interpolate_mm!(mms::AbstractArray{T}, itype::Interpolations.InterpolationType) where {T <: MismatchArray}
+function interpolate_mm!(mms::AbstractArray{T}, itype::InterpolationType) where {T <: MismatchArray}
     f = x -> CenterIndexedArray(interpolate!(x.data, itype))
     return map(f, mms)
 end
 
-function interpolate_mm!(mm::MismatchArray, itype::Interpolations.InterpolationType)
+function interpolate_mm!(mm::MismatchArray, itype::InterpolationType)
     return CenterIndexedArray(interpolate!(mm.data, itype))
 end
 
-interpolate_mm!(arg, ::Type{order}) where {order <: Interpolations.Degree} =
+interpolate_mm!(arg, ::Type{order}) where {order <: Degree} =
     interpolate_mm!(arg, itptype(order))
 
 interpolate_mm!(arg) = interpolate_mm!(arg, Quadratic)

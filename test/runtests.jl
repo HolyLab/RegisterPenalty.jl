@@ -1,9 +1,22 @@
 using Test, LinearAlgebra
+using Aqua
+using ExplicitImports
 using ForwardDiff, CoordinateTransformations, StaticArrays, Interpolations
 #import BlockRegistration
 import RegisterPenalty
 using RegisterCore, RegisterDeformation
 RP = RegisterPenalty
+
+@testset "Aqua" begin
+    # gradient! for CenterIndexedArray is intentional glue between Interpolations and CenterIndexedArrays
+    Aqua.test_all(RegisterPenalty; piracies = (treat_as_own = [Interpolations.gradient!],))
+end
+
+@testset "ExplicitImports" begin
+    # Degree, InterpolationType from Interpolations and convert_from_fixed, convert_to_fixed
+    # from RegisterDeformation are non-public but used intentionally
+    @test ExplicitImports.check_no_implicit_imports(RegisterPenalty) === nothing
+end
 
 # could probably update tests below to make better use of this
 using RegisterUtilities
