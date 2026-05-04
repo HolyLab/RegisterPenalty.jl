@@ -31,6 +31,11 @@ accuracy = 10 # for new isapprox method
     end
     dp = RegisterPenalty.AffinePenalty(nodes, 1.0)
     @test typeof(dp) == RegisterPenalty.AffinePenalty{Float64, 2}
+    # eltype/ndims dispatch chain for DeformationPenalty (lines 55-57)
+    @test eltype(RegisterPenalty.DeformationPenalty{Float64, 2}) == Float64
+    @test eltype(RegisterPenalty.AffinePenalty{Float64, 2}) == Float64
+    @test eltype(dp) == Float64
+    @test ndims(dp) == 2
     # Since the constructor performs matrix algebra on an array input,
     # test that `convert` doesn't mangle F.
     @test ≈(convert(RegisterPenalty.AffinePenalty{Float32, 2}, dp).F, dp.F, atol = 1.0e-7 * accuracy)
@@ -75,6 +80,16 @@ accuracy = 10 # for new isapprox method
     ϕ_c, g_c = compose(ϕ_old, ϕ)
     RP.penalty!(g, dp, ϕ_c, g_c)
     @test ForwardDiff.gradient(utemp -> RP.penalty!(nothing, dp, ϕ_old(interpolate(GridDeformation(utemp, imgaxs)))), u) ≈ reinterpret(reshape, eltype(u), g)
+
+    # AffinePenalty constructed from a matrix of node positions (N×npoints)
+    nodes_mat = Float64[1.0 50.0 100.0; 1.0 50.0 100.0]
+    dp_mat = RegisterPenalty.AffinePenalty(nodes_mat, 1.0)
+    @test typeof(dp_mat) == RegisterPenalty.AffinePenalty{Float64, 2}
+
+    # AffinePenalty constructed from a Vector of AbstractVectors
+    nodes_vov = [range(1.0, stop = 1000.0, length = 9), range(1.0, stop = 1002.0, length = 7)]
+    dp_vov = RegisterPenalty.AffinePenalty(nodes_vov, 1.0)
+    @test typeof(dp_vov) == RegisterPenalty.AffinePenalty{Float64, 2}
 end
 
 ################
@@ -103,6 +118,11 @@ end
     @test RP.penalty!(g, ϕ, mmi_array) < eps()
     @test abs(g[1][1]) < eps()
 
+    # Out-of-bounds shift → penalty_nd! returns NaN/NaN
+    u_oob = reshape([5.0, 0.0], 2, 1, 1)
+    ϕ_oob = GridDeformation(u_oob, imgaxs)
+    g_oob = similar(ϕ_oob.u); fill!(g_oob, zero(eltype(g_oob)))
+    @test !isfinite(RP.penalty!(g_oob, ϕ_oob, mmi_array))
 
     # A biquadratic penalty---make sure we calculate the exact values
     gridsize = (2, 2)
@@ -135,6 +155,19 @@ end
         @test ≈(g[i, j][1], 2 * (maxshift[1] + 1 + u_real[1, i, j] - c[1, i, j]) * (maxshift[2] + 1 + u_real[2, i, j] - c[2, i, j])^2 / nblocks, atol = 1000 * eps() * accuracy)
         @test ≈(g[i, j][2], 2 * (maxshift[1] + 1 + u_real[1, i, j] - c[1, i, j])^2 * (maxshift[2] + 1 + u_real[2, i, j] - c[2, i, j]) / nblocks, atol = 1000 * eps() * accuracy)
     end
+
+    # Flat-array gradient overload for data penalty with AbstractDeformation
+    g_flat = zeros(2 * prod(gridsize))
+    val_flat = RP.penalty!(g_flat, ϕ, mmis)
+    @test val_flat ≈ val
+
+    # keep mask: masked block gets zero gradient, penalty is smaller
+    keep_mask = trues(size(mmis))
+    keep_mask[1, 1] = false
+    g_masked = similar(ϕ.u); fill!(g_masked, zero(eltype(g_masked)))
+    val_masked = RP.penalty!(g_masked, ϕ, mmis, keep_mask)
+    @test iszero(g_masked[1, 1])
+    @test val_masked < val
 end
 
 #################
@@ -185,6 +218,11 @@ end
         g = similar(ϕ.u)
         val0 = RP.penalty!(g, ϕ, identity, dp, mmis)
         @test val0 ≈ valpred
+
+        # Flat-array gradient overload for 6-arg penalty!
+        g_flat = zeros(nd * prod(gridsize))
+        @test RP.penalty!(g_flat, ϕ, identity, dp, mmis) ≈ val0
+
         for I in CartesianIndices(gridsize)
             for idim in 1:nd
                 gpred = 2 / nblocks
@@ -217,6 +255,10 @@ end
         end
 
         @test_throws ErrorException RP.penalty!(g, interpolate(ϕ), ϕ_old, dp, mmis)
+
+        # Non-finite regularization penalty causes early return before data penalty
+        dp_inf = RegisterPenalty.AffinePenalty(ϕ.nodes, Inf)
+        @test !isfinite(RP.penalty!(g, ϕ, identity, dp_inf, mmis))
     end
 end
 
@@ -235,6 +277,11 @@ end
     val = RegisterPenalty.penalty!(g, 1.0, ϕs)
     gfx = ForwardDiff.gradient(x -> RegisterPenalty.penalty(1.0, cnvt(x)), x)
     @test vec(g) ≈ gfx
+
+    # Wrong-size SVector gradient → DimensionMismatch (flat-array path hits ArgumentError earlier,
+    # so use an SVector array to reach the length check in the general method)
+    g_bad = [SVector(0.0, 0.0) for _ in 1:7]
+    @test_throws DimensionMismatch RegisterPenalty.penalty!(g_bad, 1.0, ϕs)
 
     ### Total penalty, with a temporal penalty
     Qs = cat(Matrix{Float64}(I, 2, 2), zeros(2, 2), Matrix{Float64}(I, 2, 2), dims = 3)
@@ -264,4 +311,10 @@ end
     end
     gcmp = ForwardDiff.gradient(x -> pfun(x, ϕs, ap, λt, mmis), vec(u))
     @test vec(g) ≈ gcmp
+
+    # ϕs_old as a vector of deformations (exercises the AbstractVector branch in _penalty!)
+    ϕs_old_vec = [interpolate(GridDeformation(zeros(2, gridsize...), nodes)) for _ in 1:3]
+    g_old = similar(u); fill!(g_old, 0.0)
+    val_vec = RegisterPenalty.penalty!(g_old, ϕs, ϕs_old_vec, ap, λt, mmis)
+    @test isfinite(val_vec)
 end

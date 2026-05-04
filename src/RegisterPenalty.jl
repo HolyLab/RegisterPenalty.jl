@@ -245,7 +245,7 @@ function penalty_nd!(gnd, u::AbstractArray, mmis, keep)
         mmi = mmis[iblock]
         if !keep[iblock]
             if calc_grad
-                gnd[iblock] = NumDenom{T}(0, 0)
+                gnd[iblock] = SVector(ntuple(_ -> NumDenom{T}(0, 0), Val(N)))
             end
             continue
         end
