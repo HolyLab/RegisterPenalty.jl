@@ -305,7 +305,7 @@ NTuple of node-vectors; otherwise, it should be an
 `ndims`-by-`npoints` matrix that stores the node locations in columns.
 """
 mutable struct AffinePenalty{T, N} <: DeformationPenalty{T, N}
-    F::Matrix{T}   # geometry data for the affine-residual penalty
+    const F::Matrix{T}   # geometry data for the affine-residual penalty
     λ::T           # regularization coefficient
 
     AffinePenalty{T, N}(F::Matrix{T}, λ::T, _) where {T, N} = new{T, N}(F, λ)
