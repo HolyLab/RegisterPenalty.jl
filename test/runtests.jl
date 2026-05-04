@@ -218,7 +218,7 @@ end
 
     cnvt = x->RegisterPenalty.vec2ϕs(x, gsize, n, nodes)
     ϕs = cnvt(x)
-    g = similar(x)
+    g = zeros(size(x))
     val = RegisterPenalty.penalty!(g, 1.0, ϕs)
     gfx = ForwardDiff.gradient(x->RegisterPenalty.penalty(1.0, cnvt(x)), x)
     @test vec(g) ≈ gfx
