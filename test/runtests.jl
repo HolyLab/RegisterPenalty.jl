@@ -1,11 +1,17 @@
 using Test, LinearAlgebra
 using Aqua
+using Documenter
 using ExplicitImports
 using ForwardDiff, CoordinateTransformations, StaticArrays, Interpolations
 #import BlockRegistration
 import RegisterPenalty
 using RegisterCore, RegisterDeformation
 RP = RegisterPenalty
+
+DocMeta.setdocmeta!(RegisterPenalty, :DocTestSetup, :(using RegisterPenalty, RegisterCore); recursive = true)
+@testset "Doctests" begin
+    doctest(RegisterPenalty; manual = false)
+end
 
 @testset "Aqua" begin
     # gradient! for CenterIndexedArray is intentional glue between Interpolations and CenterIndexedArrays

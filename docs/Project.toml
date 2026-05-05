@@ -1,0 +1,9 @@
+[deps]
+Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
+RegisterCore = "67712758-55e7-5c3c-8e85-dda1d7758434"
+RegisterPenalty = "464fa2a9-b19c-5c59-8698-f58c971f971e"
+
+[compat]
+Documenter = "1"
+RegisterCore = "0.2"
+julia = "1.8"

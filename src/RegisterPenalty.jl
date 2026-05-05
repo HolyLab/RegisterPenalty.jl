@@ -34,8 +34,6 @@ export AffinePenalty, DeformationPenalty, penalty!, interpolate_mm!
 
 
 """
-# RegisterPenalty
-
 This module computes the total registration penalty, combining both
 "data" (the mismatch between `fixed` and `moving` images) and
 "regularization" (a penalty applied to deformations that do not fit
@@ -43,14 +41,31 @@ some pre-conceived notion of "goodness").
 
 The main exported types/functions are:
 
-- `AffinePenalty`: regularization that penalizes deviations from an affine transformation
-- `penalty!`: compute the penalty
-- `interpolate_mm!`: prepare the mismatch arrays for interpolation
-
+- [`AffinePenalty`](@ref): regularization that penalizes deviations from an affine transformation
+- [`DeformationPenalty`](@ref): abstract supertype; subtype to implement custom regularization
+- [`penalty!`](@ref): compute the total, data, or regularization penalty
+- [`interpolate_mm!`](@ref): prepare mismatch arrays for interpolation
 """
 RegisterPenalty
 
 
+"""
+    DeformationPenalty{T, N}
+
+Abstract supertype for regularization penalties on `N`-dimensional deformation
+fields with element type `T`.
+
+Subtypes implement regularization by defining a `penalty!` method:
+
+    penalty!(g, dp::MyPenalty, ϕ_c::AbstractDeformation) -> scalar
+
+where `g` is pre-allocated gradient storage (written in-place) and `ϕ_c` is
+the (possibly composed) deformation being penalized. The built-in subtype is
+[`AffinePenalty`](@ref).
+
+`Base.eltype` and `Base.ndims` are defined for all subtypes and
+return `T` and `N` respectively.
+"""
 abstract type DeformationPenalty{T, N} end
 Base.eltype(::Type{DeformationPenalty{T, N}}) where {T, N} = T
 Base.eltype(::Type{DP}) where {DP <: DeformationPenalty} = eltype(supertype(DP))
@@ -60,42 +75,36 @@ Base.ndims(::Type{DP}) where {DP <: DeformationPenalty} = ndims(supertype(DP))
 Base.ndims(dp::DeformationPenalty) = ndims(typeof(dp))
 
 """
-`p = penalty!(g, ϕ, ϕ_old, dp::DeformationPenalty, mmis, [keep])`
-computes the total penalty (data penalty + regularization penalty)
-associated with a deformation `ϕ`, mismatch data `mmis`, and
-(optionally) an "old" deformation `ϕ_old` such that the total
-deformation is the composition `ϕ_c = ϕ_old(ϕ)`. `mmis` should be with
-respect to `ϕ` and not `ϕ_c`; this supports a workflow such as:
+    p = penalty!(g, ϕ, ϕ_old, dp::DeformationPenalty, mmis)
+    p = penalty!(g, ϕ, ϕ_old, dp::DeformationPenalty, mmis, keep)
+
+Compute the total penalty (regularization + data) for deformation `ϕ`, mismatch
+data `mmis`, and an optional "base" deformation `ϕ_old`. Returns a scalar of
+the same element type as `ϕ`.
+
+When `ϕ_old` is not `identity`, the regularization penalty is evaluated on the
+composed deformation `ϕ_c = ϕ_old(ϕ)`, while the data penalty uses `ϕ` and
+`mmis` (which should express the *residual* mismatch after applying `ϕ_old`).
+This supports an incremental registration workflow:
 
 - Compute initial deformation `ϕ_0` that partially aligns `fixed` and `moving`
 - Warp `moving` with `ϕ_0`
-- Compute the *residual* mismatch between `fixed` and the warped version
-  of `moving`
-- Compute a `ϕ_1` which corrects the residual mismatch
-- Final deformation is `ϕ_0(ϕ_1)`
+- Compute residual mismatch between `fixed` and the warped image
+- Optimize `ϕ_1` to correct the residual; final deformation is `ϕ_0(ϕ_1)`
 
-This workflow requires that `ϕ_1` be determined by just the residual
-mismatch, but also that `ϕ_1` be evaluated in terms of its impact on
-the total regularization penalty (i.e., the composition `ϕ_0(ϕ_1)`).
+This method resolves to:
 
-In essence, this syntax for `penalty!` resolves to a sum of two calls:
-```
-    val =  penalty!(g, dp, ϕ_c, [g_c])        # regularization penalty
-    val += penalty!(g, ϕ, mmis, keep)         # data penalty
-```
-`g_c` is the gradient of `ϕ_c` with respect to `ϕ.u`.  If `ϕ_old ==
-identity`, then no composition is needed, `g_c` is the identity, and
-`ϕ` is used directly.
+    val =  penalty!(g, dp, ϕ_c, g_c)   # regularization; see [`penalty!(g, dp, ϕ_c)`](@ref)
+    val += penalty!(g, ϕ, mmis, keep)  # data;           see [`penalty!(g, ϕ, mmis)`](@ref)
 
-Note that `ϕ_old`, if not equal to `identity`, must be
-interpolating. In contrast, `ϕ` must not be interpolating.
+`g_c` is the Jacobian of `ϕ_c` with respect to `ϕ.u`. When `ϕ_old == identity`,
+no composition is needed and `ϕ` is used directly.
 
-`g` can be a single `Vector{T}` (for some number-type `T`), or can be
-the same type and size as `ϕ.u`, i.e., an array of fixed-sized vectors
-`SVector{N,T}`.
+`ϕ_old` must be interpolating if not `identity`; `ϕ` must not be interpolating.
 
-Further details are described in the help for the individual
-`penalty!` calls.
+`g` may be a flat `Vector{T}` or an array of `SVector{N,T}` with the same shape
+as `ϕ.u`. It is **written** by the regularization term and **incremented** by
+the data term; initialize it with zeros before calling.
 """
 function penalty!(g, ϕ, ϕ_old, dp::DeformationPenalty, mmis::AbstractArray, keep = trues(size(mmis)))
     T = eltype(ϕ)
@@ -123,10 +132,17 @@ end
 
 
 """
-`p = penalty!(gs, ϕs, ϕs_old, dp, λt, mmis, [keeps=trues(size(mmis))])`
-evaluates the total penalty for temporal sequence of deformations
-`ϕs`, using the temporal sequence of mismatch data `mmis`.  `λt` is
-the temporal roughness penalty coefficient.
+    p = penalty!(gs, ϕs, ϕs_old, dp, λt, mmis)
+    p = penalty!(gs, ϕs, ϕs_old, dp, λt, mmis, keeps)
+
+Evaluate the total penalty for a temporal sequence of deformations `ϕs` and
+the corresponding mismatch data `mmis`. `λt` is the temporal roughness penalty
+coefficient. Returns a scalar of the same element type as the deformations.
+
+This is the temporal-sequence analogue of the single-frame
+[`penalty!(g, ϕ, ϕ_old, dp, mmis)`](@ref): it calls the single-frame penalty
+for each time point and adds the temporal-roughness penalty
+`penalty!(gs, λt, ϕs)`.
 """
 function penalty!(gs, ϕs::AbstractVector{D}, ϕs_old, dp::DeformationPenalty, λt::Number, mmis::AbstractArray, keep = trues(size(mmis))) where {D <: AbstractDeformation}
     ntimes = length(ϕs)
@@ -169,28 +185,31 @@ end
 const CenteredInterpolant{T, N, A <: AbstractInterpolation} = Union{MismatchArray{T, N, A}, CachedInterpolation{T, N}}
 
 """
-`p = penalty!(g, ϕ, mmis, [keep=trues(size(mmis))])` computes the
-data penalty, i.e., the total mismatch between `fixed`
-and `moving` given the deformation `ϕ`.  The mismatch is encoded in
-`mmis`, an array-of-MismatchArrays as computed via
-RegisterMismatch. The `mmis[i]` arrays must be interpolating; see
-`interpolate_mm!`.
+    p = penalty!(g, ϕ, mmis)
+    p = penalty!(g, ϕ, mmis, keep)
+    p = penalty!(g, u, mmis)
+    p = penalty!(g, u, mmis, keep)
 
-`g` is pre-allocated storage for the gradient, and may be `nothing` or
-empty if you want to skip gradient calculation.  **Note**: this
-function *adds* to `g`; you should first fill `g` with zeros or call
-the regularization penalty to initialize it.
+Compute the data penalty — the total mismatch between `fixed` and `moving`
+given deformation `ϕ` (or displacement array `u`). Returns a scalar of the
+same element type as the mismatch data.
 
-The data penalty is defined as
-```
+`mmis` is an array-of-`CenterIndexedArray`s prepared by [`interpolate_mm!`](@ref).
+`keep` is an optional boolean array the same size as `mmis`; blocks with
+`keep[i] == false` are skipped (treated as zero mismatch).
+
+The penalty is a globally-normalized ratio:
+
         pnum_1 + pnum_2 + ... + pnum_n
    p = --------------------------------
         pden_1 + pden_2 + ... + pden_n
-```
 
-where each index `_i` refers to a single aperture, and each `p_i`
-involves just `mmis[i]` and `ϕ.u[:,i]`.  `mmis[i]` must be
-interpolating, so that it can be evaluated for fractional shifts.
+where each `pnum_i / pden_i` is the mismatch at aperture `i` evaluated at
+`ϕ.u[i]` (or `u[i]`).
+
+`g` is pre-allocated gradient storage (same shape as `ϕ.u` or `u`), and may be
+`nothing` or empty to skip gradient computation. This function **adds** to `g`;
+initialize it with zeros or call the regularization penalty first.
 """
 function penalty!(g, ϕ::AbstractDeformation, mmis::AbstractArray{M}, keep = trues(size(mmis))) where {M <: CenteredInterpolant}
     return penalty!(g, ϕ.u, mmis, keep)
@@ -291,18 +310,35 @@ end
 
 ### Affine-residual penalty
 """
-`p = AffinePenalty(nodes, λ)` initializes data defining an
-affine-residual penalty. The penalty is defined in terms of a
-deformation's `u` displacements as
-```
-    p =  λ*∑_i (u_i - a_i)^2
-```
-where `{a_i}` comes from a least-squares fit of `{u_i}` to an
-affine transformation.
+    AffinePenalty(nodes::NTuple{N, <:AbstractVector}, λ)
+    AffinePenalty(nodes::AbstractVector{<:AbstractVector}, λ)
+    AffinePenalty(nodes::AbstractMatrix, λ)
 
-When the deformation is defined on a regular grid, `nodes` can be an
-NTuple of node-vectors; otherwise, it should be an
-`ndims`-by-`npoints` matrix that stores the node locations in columns.
+Construct an affine-residual regularization penalty for use with [`penalty!`](@ref).
+Returns an `AffinePenalty{T,N}` where `T` is the element type inferred from `nodes`
+and `N` is the spatial dimensionality.
+
+The penalty measures how much a deformation's displacement field `u` deviates from
+any affine transformation:
+
+    penalty = (λ/n) * ∑_i ‖u_i - a_i‖²
+
+where `{a_i}` is the least-squares affine fit to `{u_i}` and `n = length(u)`.
+
+For regular grids, pass `nodes` as an `N`-tuple of coordinate vectors (one per
+spatial dimension) or as a vector of such vectors. For irregular point clouds,
+pass an `N×npoints` matrix whose columns are the node coordinates.
+
+# Examples
+
+```jldoctest
+julia> nodes = (range(-1.0, 1.0, length=5), range(-1.0, 1.0, length=5));
+
+julia> ap = AffinePenalty(nodes, 0.1);
+
+julia> ndims(ap), eltype(ap)
+(2, Float64)
+```
 """
 mutable struct AffinePenalty{T, N} <: DeformationPenalty{T, N}
     const F::Matrix{T}   # geometry data for the affine-residual penalty
@@ -338,19 +374,25 @@ AffinePenalty(nodes::AbstractMatrix{T}, λ) where {T} = AffinePenalty{T, size(no
 Base.convert(::Type{AffinePenalty{T, N}}, ap::AffinePenalty) where {T, N} = AffinePenalty{T, N}(convert(Matrix{T}, ap.F), convert(T, ap.λ), 0)
 
 """
-`p = penalty!(g, dp::DeformationPenalty, ϕ_c, [g_c])` computes the
-regularization penalty associated with a deformation `ϕ_c`. The `_c`
-indicates "composed", and `g_c` is the gradient of that composition.
-If your `ϕ` is not derived by composition with a previous deformation,
-just supply it for `ϕ_c` and omit `g_c`.
+    p = penalty!(g, dp::DeformationPenalty, ϕ_c)
+    p = penalty!(g, dp::DeformationPenalty, ϕ_c, g_c)
 
-The deformation penalty `dp` determines the type of penalty applied.
-You can dispatch to your own penalty function, but the built-in is
-for `dp::AffinePenalty`.
+Compute the regularization penalty for a (possibly composed) deformation `ϕ_c`.
+Returns a non-negative scalar of the same element type as `ϕ_c`.
 
-If `g` is non-empty, the gradient of the penalty with respect to `u`
-will be computed.  If you write a custom `penalty!` function for a new
-`DeformationPenalty`, it is your responsibility to set `g` in-place.
+The `_c` suffix indicates "composed": use the two-argument form when
+`ϕ_c = ϕ_old(ϕ)` and `g_c` is the Jacobian of that composition with respect to
+`ϕ.u`. When `ϕ` is not derived by composition, pass it directly as `ϕ_c` and
+omit `g_c`.
+
+`dp` determines the type of penalty; the built-in implementation is
+[`AffinePenalty`](@ref). Custom regularization can be added by subtyping
+[`DeformationPenalty`](@ref) and defining a new `penalty!` method.
+
+If `g` is non-`nothing` and non-empty, the gradient of the penalty is
+**written** into `g` (unlike the data penalty, which adds to `g`). When `g_c`
+is supplied, `g` is adjusted by the chain rule so that it is the gradient with
+respect to `ϕ.u` rather than `ϕ_c.u`.
 """
 function penalty!(g, dp::AffinePenalty, ϕ_c::AbstractDeformation{T, N}) where {T, N}
     return penalty!(g, dp, ϕ_c.u)
@@ -393,13 +435,18 @@ end
 ### Temporal penalty
 ###
 """
-`penalty!(g, λt, ϕs)` calculates the temporal penalty
-```
-   (1/2)λt ∑_i (ϕ_{i+1} - ϕ_i)^2
-```
-for a vector `ϕ` of deformations. `g`, if not `nothing`, should be a
-single real-valued vector with number of entries corresponding to all
-of the `u` arrays in all of `ϕs`.
+    p = penalty!(g, λt, ϕs)
+
+Compute the temporal-roughness penalty
+
+    (λt/2) * ∑_i ‖ϕ_{i+1} - ϕ_i‖²
+
+for a vector `ϕs` of `GridDeformation`s. Returns a non-negative scalar of the
+same element type as the deformations.
+
+`g`, if non-`nothing` and non-empty, must be a flat `Vector` whose length equals
+`length(ϕs) * length(first(ϕs).u)`. On return, `g` holds the gradient of the
+penalty with respect to all displacement vectors.
 """
 function penalty!(g, λt::Real, ϕs::Vector{D}) where {D <: GridDeformation}
     if g == nothing || isempty(g)
@@ -456,17 +503,48 @@ function vec2ϕs(x::Array{T}, gridsize::NTuple{N, Int}, n, nodes) where {T, N}
 end
 
 """
-    mmi = interpolate_mm!(mm, order=Quadratic)
+    mmi  = interpolate_mm!(mm)
+    mmi  = interpolate_mm!(mm, Quadratic)
+    mmi  = interpolate_mm!(mm, Linear)
+    mmi  = interpolate_mm!(mm, itype)
+    mmis = interpolate_mm!(mms)
+    mmis = interpolate_mm!(mms, Quadratic)
+    mmis = interpolate_mm!(mms, itype)
 
-Prepare a MismatchArray (returned by, e.g., RegisterMismatch) for
-sub-pixel interpolation.  `order` is either `Linear` or `Quadratic`
-from Interpolations.jl; with `Quadratic`, the original data are
-"destroyed," in the sense that the values are changed into quadratic
-interpolation coefficients. It can also be `Quadratic(InPlaceQ())` if
-you want to specify the boundary condition (default is `InPlace()`).
+Prepare a `MismatchArray` (as returned by RegisterMismatch) for sub-pixel
+interpolation. Returns a `CenterIndexedArray{NumDenom{T},N}` wrapping a
+B-spline or gridded interpolant, ready for use with [`penalty!`](@ref).
 
-`mmis = interpolate_mm!(mms, order)` prepares the array-of-MismatchArrays
-`mms` for interpolation.
+The `order` argument is a `Degree` subtype from Interpolations.jl: `Quadratic`
+(default) or `Linear`. With `Quadratic`, the array data are overwritten
+in-place with B-spline prefilter coefficients. For fine-grained control over
+the boundary condition or interpolation scheme, pass an `InterpolationType`
+directly:
+
+    mmi = interpolate_mm!(mm, BSpline(Quadratic(InPlace(OnCell()))))
+
+The array-of-`MismatchArray`s form processes each element and returns a
+`Vector{CenterIndexedArray{NumDenom{T},N}}`.
+
+# Examples
+
+```jldoctest
+julia> using RegisterCore
+
+julia> mm = MismatchArray(Float64, (11, 11));
+
+julia> mmi = interpolate_mm!(mm);
+
+julia> eltype(mmi), ndims(mmi)
+(NumDenom{Float64}, 2)
+
+julia> mms = [MismatchArray(Float64, (5, 5)) for _ in 1:4];
+
+julia> mmis = interpolate_mm!(mms);
+
+julia> length(mmis), eltype(first(mmis))
+(4, NumDenom{Float64})
+```
 """
 function interpolate_mm!(mms::AbstractArray{T}, itype::InterpolationType) where {T <: MismatchArray}
     f = x -> CenterIndexedArray(interpolate!(x.data, itype))
