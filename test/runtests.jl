@@ -294,7 +294,7 @@ end
     cs = cat([5, -3], [0, 0], [3, -1], dims = 2)
     gridsize = (2, 2)
     denom = ones(15, 15)
-    mms = tighten([quadratic(cs[:, t], Qs[:, :, t], denom) for i in 1:gridsize[1], j in 1:gridsize[2], t in 1:3])
+    mms = tighten([quadratic(denom, cs[:, t], Qs[:, :, t]) for i in 1:gridsize[1], j in 1:gridsize[2], t in 1:3])
     mmis = RegisterPenalty.interpolate_mm!(mms)
     nodes = (range(1, stop = 100, length = gridsize[1]), range(1, stop = 99, length = gridsize[2]))
     ap = RegisterPenalty.AffinePenalty(nodes, 1.0)
