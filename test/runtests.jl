@@ -168,11 +168,14 @@ end
     @test val_flat ≈ val
 
     # keep mask: masked block gets zero gradient, penalty is smaller
+    # Mask the block with the highest individual penalty so the average always drops
+    block_contribs = [prod([(maxshift[k] + 1 + u_real[k, i, j] - c[k, i, j])^2 for k in 1:2]) for i in 1:gridsize[1], j in 1:gridsize[2]]
+    max_block = argmax(block_contribs)
     keep_mask = trues(size(mmis))
-    keep_mask[1, 1] = false
+    keep_mask[max_block] = false
     g_masked = similar(ϕ.u); fill!(g_masked, zero(eltype(g_masked)))
     val_masked = RP.penalty!(g_masked, ϕ, mmis, keep_mask)
-    @test iszero(g_masked[1, 1])
+    @test iszero(g_masked[max_block])
     @test val_masked < val
 end
 
