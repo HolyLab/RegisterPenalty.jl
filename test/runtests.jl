@@ -91,6 +91,7 @@ accuracy = 10 # for new isapprox method
     nodes_mat = Float64[1.0 50.0 100.0; 1.0 50.0 100.0]
     dp_mat = RegisterPenalty.AffinePenalty(nodes_mat, 1.0)
     @test typeof(dp_mat) == RegisterPenalty.AffinePenalty{Float64, 2}
+    @test isapprox(dp_mat.F' * dp_mat.F, I, atol = 1e-12)  # QR was actually computed
 
     # AffinePenalty constructed from a Vector of AbstractVectors
     nodes_vov = [range(1.0, stop = 1000.0, length = 9), range(1.0, stop = 1002.0, length = 7)]
@@ -177,6 +178,10 @@ end
     val_masked = RP.penalty!(g_masked, ϕ, mmis, keep_mask)
     @test iszero(g_masked[max_block])
     @test val_masked < val
+
+    # Mismatched gradient length → error with informative message
+    g_wrong = similar(ϕ.u, SVector{2, Float64}, 3)  # 3 blocks but mmis has 4
+    @test_throws r"length\(g\) = 3 but length\(u\) = 4" RP.penalty!(g_wrong, ϕ, mmis)
 end
 
 #################
