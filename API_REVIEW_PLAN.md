@@ -118,8 +118,8 @@ Proceed with all chunks. Version stays at 1.0.1 — no version bump. Breaking AP
 - **Description**: Hide the sentinel constructor. Options: (a) call `new(F, λ)` directly inside the other inner constructors instead of routing through the sentinel form; (b) rename the sentinel argument to make it obviously private (e.g., `::Val{:_internal}`). Prefer option (a) — eliminate the sentinel constructor entirely and call `new` directly. Update `Base.convert` which currently uses the sentinel form.
 - **Depends on**: CHUNK-001
 - **Verification**: all `AffinePenalty` constructors and `Base.convert` still work; tests pass
-- **Status**: `not-started`
-- **Notes**:
+- **Status**: `complete`
+- **Notes**: Chose option (a): replaced `AffinePenalty{T,N}(F::Matrix{T}, λ::T, _)` sentinel with `AffinePenalty{T,N}(F::Matrix{T}, λ::T)` (clean 2-arg constructor calling `new`). Updated `Base.convert` to drop the dummy `0` third argument. All 7 testsets pass; ambiguity count 0.
 
 ---
 
@@ -166,6 +166,8 @@ Proceed with all chunks. Version stays at 1.0.1 — no version bump. Breaking AP
 **Session 2026-05-14 (continued)**: Implemented CHUNK-005 (add-nothing-overload-for-phi-old). Added two `::Nothing` overloads for the single-frame `penalty!` (general and `Array{<:Number}`) that delegate to the `identity` form; updated the 5-arg `penalty!` docstring to document `nothing == identity`; added tests in the Total penalty testset confirming identical values and gradients across both `g` shapes. Temporal `penalty!` inherits this via `_penalty!`'s forwarding. All 7 suites pass; ambiguity count 0. Next up: CHUNK-006 (widen-vec2phis-array-annotation).
 
 **Session 2026-05-15**: Implemented CHUNK-006 (widen-vec2ϕs-array-annotation). Changed `x::Array{T}` → `x::AbstractArray{T}` in `vec2ϕs`. Confirmed downstream `convert_to_fixed(::Type{SVector{N,T}}, ::AbstractArray{T}, sz)` already accepts `AbstractArray`. Added a Temporal-penalty test that calls `vec2ϕs` on a `view` and verifies `penalty` agrees with the dense-array form. All 7 testsets pass; ambiguity count 0. Next up: CHUNK-007 (cleanup-affinepenalty-sentinel-constructor).
+
+**Session 2026-05-15 (continued)**: Implemented CHUNK-007 (cleanup-affinepenalty-sentinel-constructor). Replaced the sentinel constructor `AffinePenalty{T,N}(F, λ, _)` with a clean 2-arg form `AffinePenalty{T,N}(F, λ)` calling `new` directly. Updated `Base.convert` to remove the dummy `0` argument. All 7 testsets pass; ambiguity count 0. Next up: CHUNK-008 (simplify-eltype-ndims-delegation-chains).
 
 ## Open Questions
 - **Plan-vs-reality version drift**: Project.toml shows 1.0.1; plan assumed 0.3.3. Implications: (a) the `release-baseline` chunk's intent (cut a final 0.3.x release before breaking changes) is moot — 1.0 has already shipped; (b) `Stated values` said "pre-1.0 package; breaking changes are acceptable" — no longer true. Need user direction on whether to (i) proceed with the breaking chunk and bump 1.0.1 → 2.0.0, or (ii) drop the breaking chunk and only do the non-breaking ones.

@@ -354,7 +354,7 @@ mutable struct AffinePenalty{T, N} <: DeformationPenalty{T, N}
     const F::Matrix{T}   # geometry data for the affine-residual penalty
     λ::T           # regularization coefficient
 
-    AffinePenalty{T, N}(F::Matrix{T}, λ::T, _) where {T, N} = new{T, N}(F, λ)
+    AffinePenalty{T, N}(F::Matrix{T}, λ::T) where {T, N} = new{T, N}(F, λ)
 
     function AffinePenalty{T, N}(nodes::NTuple{N}, λ) where {T, N}
         gridsize = map(length, nodes)
@@ -381,7 +381,7 @@ AffinePenalty(nodes::NTuple{N, <:AbstractVector{T}}, λ) where {T, N} = AffinePe
 AffinePenalty(nodes::AbstractVector{<:AbstractVector{T}}, λ) where {T} = AffinePenalty{T, length(nodes)}((nodes...,), λ)
 AffinePenalty(nodes::AbstractMatrix{T}, λ) where {T} = AffinePenalty{T, size(nodes, 1)}(nodes, λ)
 
-Base.convert(::Type{AffinePenalty{T, N}}, ap::AffinePenalty) where {T, N} = AffinePenalty{T, N}(convert(Matrix{T}, ap.F), convert(T, ap.λ), 0)
+Base.convert(::Type{AffinePenalty{T, N}}, ap::AffinePenalty) where {T, N} = AffinePenalty{T, N}(convert(Matrix{T}, ap.F), convert(T, ap.λ))
 
 """
     p = penalty!(g, dp::DeformationPenalty, ϕ_c)
