@@ -1,6 +1,6 @@
 name = "RegisterPenalty"
 uuid = "464fa2a9-b19c-5c59-8698-f58c971f971e"
-version = "1.0.1"
+version = "1.0.2"
 authors = ["Tim Holy <tim.holy@gmail.com>"]
 
 [deps]
