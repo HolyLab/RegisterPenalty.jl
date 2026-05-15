@@ -4,39 +4,52 @@
 API_REVIEW_PLAN.md — RegisterPenalty, version 1.0.1 (stays at 1.0.1, no bump)
 
 ## What was just completed
-CHUNK-007: cleanup-affinepenalty-sentinel-constructor
+CHUNK-008: simplify-eltype-ndims-delegation-chains
 
-Replaced the dummy-third-argument inner constructor
-`AffinePenalty{T,N}(F::Matrix{T}, λ::T, _) = new{T,N}(F, λ)` with a clean
-2-arg form `AffinePenalty{T,N}(F::Matrix{T}, λ::T) = new{T,N}(F, λ)`.
-Updated `Base.convert` (the sole caller of the sentinel form) from
-`AffinePenalty{T,N}(convert(Matrix{T}, ap.F), convert(T, ap.λ), 0)`
-to `AffinePenalty{T,N}(convert(Matrix{T}, ap.F), convert(T, ap.λ))`.
-The two nodes-based inner constructors already called `new` directly and
-were untouched.
+Replaced the 6-method `eltype`/`ndims` chain with 4 methods:
+
+```julia
+# Before (6 methods):
+Base.eltype(::Type{DeformationPenalty{T, N}}) where {T, N} = T
+Base.eltype(::Type{DP}) where {DP <: DeformationPenalty} = eltype(supertype(DP))
+Base.eltype(dp::DeformationPenalty) = eltype(typeof(dp))
+Base.ndims(::Type{DeformationPenalty{T, N}}) where {T, N} = N
+Base.ndims(::Type{DP}) where {DP <: DeformationPenalty} = ndims(supertype(DP))
+Base.ndims(dp::DeformationPenalty) = ndims(typeof(dp))
+
+# After (4 methods):
+Base.eltype(::Type{<:DeformationPenalty{T, N}}) where {T, N} = T
+Base.ndims(::Type{<:DeformationPenalty{T, N}}) where {T, N} = N
+Base.eltype(dp::DeformationPenalty) = eltype(typeof(dp))
+Base.ndims(dp::DeformationPenalty) = ndims(typeof(dp))
+```
+
+The plan proposed 2 instance-only methods, but the tests call
+`eltype(AffinePenalty{Float64,2})` (type-dispatch), so we need to retain the
+`::Type{<:...}` overloads. The `<:` wildcard covers both the abstract
+`DeformationPenalty{T,N}` and all concrete subtypes (e.g., `AffinePenalty{T,N}`)
+in one method, eliminating the `supertype`-delegation pair.
 
 ## Key decisions / shim choices
-- Option (a) from the plan: eliminate sentinel, add clean 2-arg constructor.
-- Non-breaking change — no external callers should have been passing the dummy arg.
+- Deviated from plan's proposed 2-method form: kept type-dispatch overloads
+  because `eltype(AffinePenalty{Float64,2})` is tested explicitly.
+- Used `::Type{<:DeformationPenalty{T,N}}` wildcard instead of separate exact +
+  delegation methods — cleaner and no runtime indirection.
 
 ## State of the codebase
 - Files modified: `src/RegisterPenalty.jl`, `API_REVIEW_PLAN.md`, `API_REVIEW_SESSION.md`
-- Test suite: pass (all 7 suites: Doctests, Aqua, ExplicitImports, Affine penalty, Data penalty, Total penalty, Temporal penalty)
+- Test suite: pass (all 7 suites)
 - Ambiguity count: 0 (unchanged from baseline)
-- Staged but uncommitted: yes — CHUNK-007 edits. Also: `Project.toml` compat-narrowing and `.github/workflows/TagBot.yml` change are still in the working tree (unrelated to this review).
+- Staged but uncommitted: yes — CHUNK-008 edits. Unrelated `Project.toml` and `TagBot.yml` still in working tree.
 
 ## Cluster status
 - temporal-penalty-api: 2 of 2 complete ✓
-- construction-cleanup: 1 of 2 complete (CHUNK-008 pending)
-- standalone: CHUNK-005, CHUNK-006 done ✓
+- construction-cleanup: 2 of 2 complete ✓
+- standalone: all complete ✓
+- **ALL CHUNKS COMPLETE**
 
 ## Next chunk
-CHUNK-008: simplify-eltype-ndims-delegation-chains — replace the six-method
-`eltype`/`ndims` chain with two instance-dispatch methods using type parameters
-directly. First confirm whether `eltype(DeformationPenalty{Float64,2})` (called
-on the *type*, not an instance) needs to remain working.
+None — the API review plan is fully implemented.
 
 ## Watch out for
-- CHUNK-008: the open question about `eltype(typeof(dp))` vs `eltype(DeformationPenalty{Float64,2})` — the former works via the proposed instance-only method (Julia auto-lifts instance dispatch to type dispatch when `T` is a concrete type), the latter may not. Read the six current methods and check test/downstream usage before deleting any.
-- construction-cleanup cluster is half-done (CHUNK-007 done, CHUNK-008 pending). Don't leave it half-finished.
-- The `Project.toml` compat-narrowing diff is still unstaged — unrelated to this review; the user may want a separate commit for it.
+- The unrelated `Project.toml` compat-narrowing diff and `.github/workflows/TagBot.yml` change are still in the working tree. These predate this review and should be committed separately if desired.

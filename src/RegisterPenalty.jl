@@ -67,11 +67,9 @@ the (possibly composed) deformation being penalized. The built-in subtype is
 return `T` and `N` respectively.
 """
 abstract type DeformationPenalty{T, N} end
-Base.eltype(::Type{DeformationPenalty{T, N}}) where {T, N} = T
-Base.eltype(::Type{DP}) where {DP <: DeformationPenalty} = eltype(supertype(DP))
+Base.eltype(::Type{<:DeformationPenalty{T, N}}) where {T, N} = T
+Base.ndims(::Type{<:DeformationPenalty{T, N}}) where {T, N} = N
 Base.eltype(dp::DeformationPenalty) = eltype(typeof(dp))
-Base.ndims(::Type{DeformationPenalty{T, N}}) where {T, N} = N
-Base.ndims(::Type{DP}) where {DP <: DeformationPenalty} = ndims(supertype(DP))
 Base.ndims(dp::DeformationPenalty) = ndims(typeof(dp))
 
 """

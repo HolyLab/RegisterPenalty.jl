@@ -136,8 +136,8 @@ Proceed with all chunks. Version stays at 1.0.1 — no version bump. Breaking AP
   These cover both type-argument and instance-argument calls via Julia's automatic dispatch. Delete the four now-redundant type-dispatch overloads.
 - **Depends on**: CHUNK-001
 - **Verification**: `eltype(dp)`, `eltype(typeof(dp))`, `ndims(dp)`, `ndims(typeof(dp))` all return correct values; tests pass
-- **Status**: `not-started`
-- **Notes**: Verify that `eltype(DeformationPenalty{Float64,2})` (called on the *type* itself, not an instance) is needed anywhere; if so, keep one `::Type{<:DeformationPenalty{T,N}}` overload.
+- **Status**: `complete`
+- **Notes**: The plan's proposal of 2 instance-only methods would have broken the test on line 41 (`eltype(AffinePenalty{Float64,2})` — type-dispatch call). Kept 4 methods: `::Type{<:DeformationPenalty{T,N}}` for both `eltype` and `ndims` (single wildcard replaces the 2-method `exact + supertype-delegation` chain), plus the 2 instance-dispatch convenience wrappers. 6 → 4 methods. All 7 testsets pass; ambiguity count 0.
 
 ---
 
@@ -168,6 +168,8 @@ Proceed with all chunks. Version stays at 1.0.1 — no version bump. Breaking AP
 **Session 2026-05-15**: Implemented CHUNK-006 (widen-vec2ϕs-array-annotation). Changed `x::Array{T}` → `x::AbstractArray{T}` in `vec2ϕs`. Confirmed downstream `convert_to_fixed(::Type{SVector{N,T}}, ::AbstractArray{T}, sz)` already accepts `AbstractArray`. Added a Temporal-penalty test that calls `vec2ϕs` on a `view` and verifies `penalty` agrees with the dense-array form. All 7 testsets pass; ambiguity count 0. Next up: CHUNK-007 (cleanup-affinepenalty-sentinel-constructor).
 
 **Session 2026-05-15 (continued)**: Implemented CHUNK-007 (cleanup-affinepenalty-sentinel-constructor). Replaced the sentinel constructor `AffinePenalty{T,N}(F, λ, _)` with a clean 2-arg form `AffinePenalty{T,N}(F, λ)` calling `new` directly. Updated `Base.convert` to remove the dummy `0` argument. All 7 testsets pass; ambiguity count 0. Next up: CHUNK-008 (simplify-eltype-ndims-delegation-chains).
+
+**Session 2026-05-15 (continued)**: Implemented CHUNK-008 (simplify-eltype-ndims-delegation-chains). Collapsed 6-method chain to 4 methods: replaced the `exact-type + supertype-delegation` pair for both `eltype` and `ndims` with a single `::Type{<:DeformationPenalty{T,N}}` wildcard overload each, preserving the 2 instance-dispatch convenience wrappers (needed because tests call `eltype(AffinePenalty{Float64,2})` — type dispatch — and `eltype(dp)` — instance dispatch). All 7 testsets pass; ambiguity count 0. All chunks complete.
 
 ## Open Questions
 - **Plan-vs-reality version drift**: Project.toml shows 1.0.1; plan assumed 0.3.3. Implications: (a) the `release-baseline` chunk's intent (cut a final 0.3.x release before breaking changes) is moot — 1.0 has already shipped; (b) `Stated values` said "pre-1.0 package; breaking changes are acceptable" — no longer true. Need user direction on whether to (i) proceed with the breaking chunk and bump 1.0.1 → 2.0.0, or (ii) drop the breaking chunk and only do the non-breaking ones.
