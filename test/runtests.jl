@@ -232,6 +232,13 @@ end
         g_flat = zeros(nd * prod(gridsize))
         @test RP.penalty!(g_flat, ϕ, identity, dp, mmis) ≈ val0
 
+        # `nothing` as ϕ_old is equivalent to `identity`
+        g_nothing = similar(ϕ.u); fill!(g_nothing, zero(eltype(g_nothing)))
+        @test RP.penalty!(g_nothing, ϕ, nothing, dp, mmis) ≈ val0
+        @test g_nothing == g
+        g_flat_nothing = zeros(nd * prod(gridsize))
+        @test RP.penalty!(g_flat_nothing, ϕ, nothing, dp, mmis) ≈ val0
+
         for I in CartesianIndices(gridsize)
             for idim in 1:nd
                 gpred = 2 / nblocks
@@ -283,14 +290,19 @@ end
     cnvt = x -> RegisterPenalty.vec2ϕs(x, gsize, n, nodes)
     ϕs = cnvt(x)
     g = zeros(size(x))
-    val = RegisterPenalty.penalty!(g, 1.0, ϕs)
-    gfx = ForwardDiff.gradient(x -> RegisterPenalty.penalty(1.0, cnvt(x)), x)
+    val = RegisterPenalty.penalty!(g, ϕs, 1.0)
+    gfx = ForwardDiff.gradient(x -> RegisterPenalty.penalty(cnvt(x), 1.0), x)
     @test vec(g) ≈ gfx
+
+    # vec2ϕs accepts non-Array AbstractArrays (e.g., views)
+    xpad = [x; zeros(5)]
+    ϕs_view = RegisterPenalty.vec2ϕs(view(xpad, 1:length(x)), gsize, n, nodes)
+    @test RegisterPenalty.penalty(ϕs_view, 1.0) ≈ RegisterPenalty.penalty(ϕs, 1.0)
 
     # Wrong-size SVector gradient → DimensionMismatch (flat-array path hits ArgumentError earlier,
     # so use an SVector array to reach the length check in the general method)
     g_bad = [SVector(0.0, 0.0) for _ in 1:7]
-    @test_throws DimensionMismatch RegisterPenalty.penalty!(g_bad, 1.0, ϕs)
+    @test_throws DimensionMismatch RegisterPenalty.penalty!(g_bad, ϕs, 1.0)
 
     ### Total penalty, with a temporal penalty
     Qs = cat(Matrix{Float64}(I, 2, 2), zeros(2, 2), Matrix{Float64}(I, 2, 2), dims = 3)

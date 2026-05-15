@@ -82,9 +82,13 @@ Compute the total penalty (regularization + data) for deformation `ϕ`, mismatch
 data `mmis`, and an optional "base" deformation `ϕ_old`. Returns a scalar of
 the same element type as `ϕ`.
 
-When `ϕ_old` is not `identity`, the regularization penalty is evaluated on the
-composed deformation `ϕ_c = ϕ_old(ϕ)`, while the data penalty uses `ϕ` and
-`mmis` (which should express the *residual* mismatch after applying `ϕ_old`).
+Pass `ϕ_old = identity` or `ϕ_old = nothing` to indicate "no prior deformation";
+the two are equivalent.
+
+When `ϕ_old` is a non-trivial deformation, the regularization penalty is
+evaluated on the composed deformation `ϕ_c = ϕ_old(ϕ)`, while the data penalty
+uses `ϕ` and `mmis` (which should express the *residual* mismatch after
+applying `ϕ_old`).
 This supports an incremental registration workflow:
 
 - Compute initial deformation `ϕ_0` that partially aligns `fixed` and `moving`
@@ -130,6 +134,12 @@ function penalty!(g::Array{T}, ϕ, ϕ_old, dp::DeformationPenalty, mmis::Abstrac
     return penalty!(gf, ϕ, ϕ_old, dp, mmis, keep)
 end
 
+# `nothing` is accepted as a self-documenting alias for `identity` ("no prior deformation").
+penalty!(g, ϕ, ::Nothing, dp::DeformationPenalty, mmis::AbstractArray, keep = trues(size(mmis))) =
+    penalty!(g, ϕ, identity, dp, mmis, keep)
+penalty!(g::Array{<:Number}, ϕ, ::Nothing, dp::DeformationPenalty, mmis::AbstractArray, keep = trues(size(mmis))) =
+    penalty!(g, ϕ, identity, dp, mmis, keep)
+
 
 """
     p = penalty!(gs, ϕs, ϕs_old, dp, λt, mmis)
@@ -142,7 +152,7 @@ coefficient. Returns a scalar of the same element type as the deformations.
 This is the temporal-sequence analogue of the single-frame
 [`penalty!(g, ϕ, ϕ_old, dp, mmis)`](@ref): it calls the single-frame penalty
 for each time point and adds the temporal-roughness penalty
-`penalty!(gs, λt, ϕs)`.
+`penalty!(gs, ϕs, λt)`.
 """
 function penalty!(gs, ϕs::AbstractVector{D}, ϕs_old, dp::DeformationPenalty, λt::Number, mmis::AbstractArray, keep = trues(size(mmis))) where {D <: AbstractDeformation}
     ntimes = length(ϕs)
@@ -152,7 +162,7 @@ function penalty!(gs, ϕs::AbstractVector{D}, ϕs_old, dp::DeformationPenalty, �
         isfinite(s) || break
         s += _penalty!(gs, ϕs, ϕs_old, dp, mmis, keep, i)
     end
-    return s + penalty!(gs, λt, ϕs)
+    return s + penalty!(gs, ϕs, λt)
 end
 
 
@@ -435,7 +445,7 @@ end
 ### Temporal penalty
 ###
 """
-    p = penalty!(g, λt, ϕs)
+    p = penalty!(g, ϕs, λt)
 
 Compute the temporal-roughness penalty
 
@@ -448,16 +458,16 @@ same element type as the deformations.
 `length(ϕs) * length(first(ϕs).u)`. On return, `g` holds the gradient of the
 penalty with respect to all displacement vectors.
 """
-function penalty!(g, λt::Real, ϕs::Vector{D}) where {D <: GridDeformation}
+function penalty!(g, ϕs::AbstractVector{<:GridDeformation}, λt::Real)
     if g == nothing || isempty(g)
-        return penalty(λt, ϕs)
+        return penalty(ϕs, λt)
     end
     ngrid = length(first(ϕs).u)
     if length(g) != length(ϕs) * ngrid
         gsize = (size(first(ϕs).u)..., length(ϕs))
         throw(DimensionMismatch("g's length $(length(g)) inconsistent with $gsize"))
     end
-    local s = zero(eltype(D))
+    local s = zero(eltype(first(ϕs)))
     λt2 = λt / 2
     for i in 1:(length(ϕs) - 1)
         ϕ = ϕs[i]
@@ -474,15 +484,15 @@ function penalty!(g, λt::Real, ϕs::Vector{D}) where {D <: GridDeformation}
     return s
 end
 
-function penalty!(g::Array{T}, λt::Real, ϕs::Vector{D}) where {T <: Number, D <: GridDeformation}
+function penalty!(g::Array{T}, ϕs::AbstractVector{<:GridDeformation}, λt::Real) where {T <: Number}
     N = ndims(first(ϕs))
     sz = size(first(ϕs).u)
     gf = convert_to_fixed(g, (N, sz..., length(ϕs)))
-    return penalty!(gf, λt, ϕs)
+    return penalty!(gf, ϕs, λt)
 end
 
-function penalty(λt::Real, ϕs::Vector{D}) where {D <: GridDeformation}
-    s = zero(eltype(D))
+function penalty(ϕs::AbstractVector{<:GridDeformation}, λt::Real)
+    s = zero(eltype(first(ϕs)))
     ngrid = length(first(ϕs).u)
     λt2 = λt / 2
     for i in 1:(length(ϕs) - 1)
@@ -496,7 +506,7 @@ function penalty(λt::Real, ϕs::Vector{D}) where {D <: GridDeformation}
     return s
 end
 
-function vec2ϕs(x::Array{T}, gridsize::NTuple{N, Int}, n, nodes) where {T, N}
+function vec2ϕs(x::AbstractArray{T}, gridsize::NTuple{N, Int}, n, nodes) where {T, N}
     xr = convert_to_fixed(SVector{N, T}, x, (gridsize..., n))
     colons = ntuple(d -> Colon(), N)::NTuple{N, Colon}
     return [GridDeformation(view(xr, colons..., i), nodes) for i in 1:n]
