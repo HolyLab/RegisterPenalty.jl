@@ -5,5 +5,5 @@ RegisterPenalty = "464fa2a9-b19c-5c59-8698-f58c971f971e"
 
 [compat]
 Documenter = "1"
-RegisterCore = "0.2"
-julia = "1.8"
+RegisterCore = "1"
+julia = "1.10"

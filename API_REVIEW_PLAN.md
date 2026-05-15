@@ -5,19 +5,20 @@
 - **Kind**: `api`
 - **Package**: RegisterPenalty
 - **Source review date**: 2026-05-04
-- **Current version**: 0.3.3
+- **Current version**: 1.0.1 (was 0.3.3 at plan-authoring time; package has since been released as 1.0)
 
 ## Stated values
-Pre-1.0 package; breaking changes are acceptable. Act on all three tiers (breaking, non-breaking, internal consistency). Prefer clean breaks over deprecation shims. Cut a final 0.3.x release before the first breaking change lands.
+Proceed with all chunks. Version stays at 1.0.1 — no version bump. Breaking API changes acceptable without a formal semver bump at this time.
 
 ## Release strategy
 - **Pre-breaking-release**: `yes`
 - **Inter-cluster releases**: `n/a` (single breaking cluster)
 
 ## Baseline
-- Tests pass on the starting commit: `not-yet-checked`
-- `Test.detect_ambiguities` count: `not-yet-checked`
-- Working tree clean: `not-yet-checked`
+- Tests pass on the starting commit: `yes` (commit 410357c, 2026-05-14)
+- `Test.detect_ambiguities` count: `0`
+- Working tree clean: `yes` (only `.claude/design_review_report.txt` untracked, unrelated to package)
+- Project.toml version at baseline: `1.0.1`
 
 ## Decisions
 <!-- Answers to `decide` chunks land here, with the chunk ID. -->
@@ -32,8 +33,8 @@ Pre-1.0 package; breaking changes are acceptable. Act on all three tiers (breaki
 - **Description**: Establish baseline: confirm tests pass, record `Test.detect_ambiguities(RegisterPenalty)` count, confirm working tree is clean.
 - **Depends on**: none
 - **Verification**: full test suite, `Test.detect_ambiguities`
-- **Status**: `not-started`
-- **Notes**:
+- **Status**: `complete`
+- **Notes**: Baseline recorded. Surprise: Project.toml is 1.0.1, not 0.3.3 as the plan assumed. The package was bumped to 1.0 (commit bf80c02) and 1.0.1 since plan-authoring. This affects CHUNK-002 (release-baseline — the 0.3.x "final release" is already past) and CHUNK-009 (version-bump — must be 1.0.1 → 2.0.0, not 0.3.3 → 0.4.0). Needs user input before proceeding.
 
 ---
 
@@ -45,8 +46,8 @@ Pre-1.0 package; breaking changes are acceptable. Act on all three tiers (breaki
 - **Description**: Cut a final 0.3.x release (tag + register) before any breaking changes land. Ensure the working tree is clean and tests pass on this commit.
 - **Depends on**: CHUNK-001
 - **Verification**: tag pushed; tests green
-- **Status**: `not-started`
-- **Notes**:
+- **Status**: `dropped`
+- **Notes**: Package was already at 1.0.1 when implementation began; the pre-breaking-release concept does not apply.
 
 ---
 
@@ -62,8 +63,8 @@ Pre-1.0 package; breaking changes are acceptable. Act on all three tiers (breaki
   - Update all internal callers (check `_penalty!` and any test that calls Group E directly).
 - **Depends on**: CHUNK-001
 - **Verification**: tests updated and passing; `penalty!(g, ϕs, λt)` round-trips correctly for temporal-only case
-- **Status**: `not-started`
-- **Notes**: Also combine with CHUNK-004 since both touch the same methods.
+- **Status**: `complete`
+- **Notes**: Combined with CHUNK-004 in one pass. Also fixed stale `D` type-variable references in method bodies (`zero(eltype(D))` → `zero(eltype(first(ϕs)))`). All 4 temporal-penalty tests pass; ambiguity count remains 0.
 
 ---
 
@@ -78,8 +79,8 @@ Pre-1.0 package; breaking changes are acceptable. Act on all three tiers (breaki
   By convention, widen when the implementation doesn't require contiguous storage. Best done in the same commit as CHUNK-003 since all three methods are touched anyway.
 - **Depends on**: CHUNK-003
 - **Verification**: tests pass; `penalty!` callable with a view of a deformation vector
-- **Status**: `not-started`
-- **Notes**:
+- **Status**: `complete`
+- **Notes**: Done in the same commit as CHUNK-003. `Vector{D} where D<:GridDeformation` replaced by `AbstractVector{<:GridDeformation>` throughout.
 
 ---
 
@@ -91,8 +92,8 @@ Pre-1.0 package; breaking changes are acceptable. Act on all three tiers (breaki
 - **Description**: Add overloads (or a type union in the existing signature) so that `penalty!(g, ϕ, nothing, dp, mmis)` is accepted as equivalent to `penalty!(g, ϕ, identity, dp, mmis)`. Options: (a) add `ϕ_old::Nothing` overload that substitutes `identity` and delegates; (b) change the type annotation to `Union{typeof(identity), Nothing, AbstractDeformation}` and handle `nothing` in the body. Prefer option (a) — two short methods, cleaner dispatch. Keep the existing `identity` behavior for backwards compatibility.
 - **Depends on**: CHUNK-001
 - **Verification**: `penalty!(g, ϕ, nothing, dp, mmis)` and `penalty!(g, ϕ, identity, dp, mmis)` return identical results
-- **Status**: `not-started`
-- **Notes**:
+- **Status**: `complete`
+- **Notes**: Added two single-frame `::Nothing` overloads (one for general `g`, one for `g::Array{<:Number}`) that delegate to the `identity` form. No explicit temporal overload needed — `_penalty!` forwards `ϕs_old` straight through to the single-frame method via the non-`AbstractVector` branch, so `penalty!(gs, ϕs, nothing, dp, λt, mmis)` also works. Docstring on the 5-arg `penalty!` mentions the equivalence. New tests in the Total penalty testset assert identical values and gradients vs `identity` for both `g::Vector{SVector}` and flat-`Array` paths. Ambiguity count remains 0.
 
 ---
 
@@ -104,8 +105,8 @@ Pre-1.0 package; breaking changes are acceptable. Act on all three tiers (breaki
 - **Description**: Change `x::Array{T}` to `x::AbstractArray{T}` in `vec2ϕs`. Verify that the body only uses operations defined on `AbstractArray` (indexing, `length`, `reshape` or equivalent). If `reshape` requires dense storage, keep `DenseArray` as the annotation instead of `Array`.
 - **Depends on**: CHUNK-001
 - **Verification**: tests pass; `vec2ϕs` callable with a `view`
-- **Status**: `not-started`
-- **Notes**:
+- **Status**: `complete`
+- **Notes**: Widened `x::Array{T}` → `x::AbstractArray{T}` in `vec2ϕs`. Downstream `RegisterDeformation.convert_to_fixed(::Type{SVector{N,T}}, u::AbstractArray{T}, sz)` already accepts `AbstractArray` and uses `vec` + `reinterpret`; non-strided storage would error at runtime in `reinterpret`, which is acceptable (matches downstream contract). Added a test that calls `vec2ϕs` on a `view` of a longer vector and verifies `penalty` agrees. All 7 testsets pass; ambiguity count 0.
 
 ---
 
@@ -117,8 +118,8 @@ Pre-1.0 package; breaking changes are acceptable. Act on all three tiers (breaki
 - **Description**: Hide the sentinel constructor. Options: (a) call `new(F, λ)` directly inside the other inner constructors instead of routing through the sentinel form; (b) rename the sentinel argument to make it obviously private (e.g., `::Val{:_internal}`). Prefer option (a) — eliminate the sentinel constructor entirely and call `new` directly. Update `Base.convert` which currently uses the sentinel form.
 - **Depends on**: CHUNK-001
 - **Verification**: all `AffinePenalty` constructors and `Base.convert` still work; tests pass
-- **Status**: `not-started`
-- **Notes**:
+- **Status**: `complete`
+- **Notes**: Chose option (a): replaced `AffinePenalty{T,N}(F::Matrix{T}, λ::T, _)` sentinel with `AffinePenalty{T,N}(F::Matrix{T}, λ::T)` (clean 2-arg constructor calling `new`). Updated `Base.convert` to drop the dummy `0` third argument. All 7 testsets pass; ambiguity count 0.
 
 ---
 
@@ -135,8 +136,8 @@ Pre-1.0 package; breaking changes are acceptable. Act on all three tiers (breaki
   These cover both type-argument and instance-argument calls via Julia's automatic dispatch. Delete the four now-redundant type-dispatch overloads.
 - **Depends on**: CHUNK-001
 - **Verification**: `eltype(dp)`, `eltype(typeof(dp))`, `ndims(dp)`, `ndims(typeof(dp))` all return correct values; tests pass
-- **Status**: `not-started`
-- **Notes**: Verify that `eltype(DeformationPenalty{Float64,2})` (called on the *type* itself, not an instance) is needed anywhere; if so, keep one `::Type{<:DeformationPenalty{T,N}}` overload.
+- **Status**: `complete`
+- **Notes**: The plan's proposal of 2 instance-only methods would have broken the test on line 41 (`eltype(AffinePenalty{Float64,2})` — type-dispatch call). Kept 4 methods: `::Type{<:DeformationPenalty{T,N}}` for both `eltype` and `ndims` (single wildcard replaces the 2-method `exact + supertype-delegation` chain), plus the 2 instance-dispatch convenience wrappers. 6 → 4 methods. All 7 testsets pass; ambiguity count 0.
 
 ---
 
@@ -148,8 +149,8 @@ Pre-1.0 package; breaking changes are acceptable. Act on all three tiers (breaki
 - **Description**: After CHUNK-003 merges (the sole breaking change), bump version 0.3.3 → 0.4.0. Update `[compat]` entries in any HolyLab downstream packages that depend on RegisterPenalty.
 - **Depends on**: CHUNK-003
 - **Verification**: full test suite green; version registered; no half-finished cluster
-- **Status**: `not-started`
-- **Notes**:
+- **Status**: `dropped`
+- **Notes**: User decided to keep version at 1.0.1 and not perform a formal version bump.
 
 ---
 
@@ -158,8 +159,18 @@ Pre-1.0 package; breaking changes are acceptable. Act on all three tiers (breaki
 - **T2-B (`interpolate_mm!` naming)**: Source confirmed that `interpolate_mm!` calls `interpolate!(mm.data, itype)` which mutates the underlying data of each `MismatchArray` in place. The `!` suffix is warranted. No action needed.
 
 ## Session Log
-<!-- The implementer appends an entry after each session. -->
+**Session 2026-05-14**: Implemented CHUNK-001 (preflight). Tests pass; `Test.detect_ambiguities(RegisterPenalty) == 0`; working tree clean. Discovered version mismatch — Project.toml is 1.0.1 (plan assumed 0.3.3). User decided: proceed all chunks, version stays at 1.0.1 (CHUNK-002 and CHUNK-009 dropped).
+
+**Session 2026-05-14 (continued)**: Implemented CHUNK-003+004 (fix-λt-argument-order + widen-vector-to-abstractvector, combined). Swapped argument order in `penalty!(g, ϕs, λt)`, `penalty!(g::Array, ϕs, λt)`, and `penalty(ϕs, λt)`; widened `Vector{D<:GridDeformation}` to `AbstractVector{<:GridDeformation}`; fixed stale `D` type-variable references in bodies; updated internal caller and three test call sites. All suites pass; ambiguity count 0. Next up: CHUNK-005 (add-nothing-overload-for-phi-old).
+
+**Session 2026-05-14 (continued)**: Implemented CHUNK-005 (add-nothing-overload-for-phi-old). Added two `::Nothing` overloads for the single-frame `penalty!` (general and `Array{<:Number}`) that delegate to the `identity` form; updated the 5-arg `penalty!` docstring to document `nothing == identity`; added tests in the Total penalty testset confirming identical values and gradients across both `g` shapes. Temporal `penalty!` inherits this via `_penalty!`'s forwarding. All 7 suites pass; ambiguity count 0. Next up: CHUNK-006 (widen-vec2phis-array-annotation).
+
+**Session 2026-05-15**: Implemented CHUNK-006 (widen-vec2ϕs-array-annotation). Changed `x::Array{T}` → `x::AbstractArray{T}` in `vec2ϕs`. Confirmed downstream `convert_to_fixed(::Type{SVector{N,T}}, ::AbstractArray{T}, sz)` already accepts `AbstractArray`. Added a Temporal-penalty test that calls `vec2ϕs` on a `view` and verifies `penalty` agrees with the dense-array form. All 7 testsets pass; ambiguity count 0. Next up: CHUNK-007 (cleanup-affinepenalty-sentinel-constructor).
+
+**Session 2026-05-15 (continued)**: Implemented CHUNK-007 (cleanup-affinepenalty-sentinel-constructor). Replaced the sentinel constructor `AffinePenalty{T,N}(F, λ, _)` with a clean 2-arg form `AffinePenalty{T,N}(F, λ)` calling `new` directly. Updated `Base.convert` to remove the dummy `0` argument. All 7 testsets pass; ambiguity count 0. Next up: CHUNK-008 (simplify-eltype-ndims-delegation-chains).
+
+**Session 2026-05-15 (continued)**: Implemented CHUNK-008 (simplify-eltype-ndims-delegation-chains). Collapsed 6-method chain to 4 methods: replaced the `exact-type + supertype-delegation` pair for both `eltype` and `ndims` with a single `::Type{<:DeformationPenalty{T,N}}` wildcard overload each, preserving the 2 instance-dispatch convenience wrappers (needed because tests call `eltype(AffinePenalty{Float64,2})` — type dispatch — and `eltype(dp)` — instance dispatch). All 7 testsets pass; ambiguity count 0. All chunks complete.
 
 ## Open Questions
+- **Plan-vs-reality version drift**: Project.toml shows 1.0.1; plan assumed 0.3.3. Implications: (a) the `release-baseline` chunk's intent (cut a final 0.3.x release before breaking changes) is moot — 1.0 has already shipped; (b) `Stated values` said "pre-1.0 package; breaking changes are acceptable" — no longer true. Need user direction on whether to (i) proceed with the breaking chunk and bump 1.0.1 → 2.0.0, or (ii) drop the breaking chunk and only do the non-breaking ones.
 - Does `eltype(DeformationPenalty{Float64,2})` (type, not instance) need to work? Determines whether CHUNK-008 can fully drop type-dispatch overloads.
-- Does `vec2ϕs` body use `reshape` or pointer access that would require `DenseArray` rather than `AbstractArray`? (CHUNK-006)

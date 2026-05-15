@@ -91,6 +91,7 @@ accuracy = 10 # for new isapprox method
     nodes_mat = Float64[1.0 50.0 100.0; 1.0 50.0 100.0]
     dp_mat = RegisterPenalty.AffinePenalty(nodes_mat, 1.0)
     @test typeof(dp_mat) == RegisterPenalty.AffinePenalty{Float64, 2}
+    @test isapprox(dp_mat.F' * dp_mat.F, I, atol = 1e-12)  # QR was actually computed
 
     # AffinePenalty constructed from a Vector of AbstractVectors
     nodes_vov = [range(1.0, stop = 1000.0, length = 9), range(1.0, stop = 1002.0, length = 7)]
@@ -177,6 +178,10 @@ end
     val_masked = RP.penalty!(g_masked, ϕ, mmis, keep_mask)
     @test iszero(g_masked[max_block])
     @test val_masked < val
+
+    # Mismatched gradient length → error with informative message
+    g_wrong = similar(ϕ.u, SVector{2, Float64}, 3)  # 3 blocks but mmis has 4
+    @test_throws r"length\(g\) = 3 but length\(u\) = 4" RP.penalty!(g_wrong, ϕ, mmis)
 end
 
 #################
@@ -232,6 +237,13 @@ end
         g_flat = zeros(nd * prod(gridsize))
         @test RP.penalty!(g_flat, ϕ, identity, dp, mmis) ≈ val0
 
+        # `nothing` as ϕ_old is equivalent to `identity`
+        g_nothing = similar(ϕ.u); fill!(g_nothing, zero(eltype(g_nothing)))
+        @test RP.penalty!(g_nothing, ϕ, nothing, dp, mmis) ≈ val0
+        @test g_nothing == g
+        g_flat_nothing = zeros(nd * prod(gridsize))
+        @test RP.penalty!(g_flat_nothing, ϕ, nothing, dp, mmis) ≈ val0
+
         for I in CartesianIndices(gridsize)
             for idim in 1:nd
                 gpred = 2 / nblocks
@@ -283,14 +295,19 @@ end
     cnvt = x -> RegisterPenalty.vec2ϕs(x, gsize, n, nodes)
     ϕs = cnvt(x)
     g = zeros(size(x))
-    val = RegisterPenalty.penalty!(g, 1.0, ϕs)
-    gfx = ForwardDiff.gradient(x -> RegisterPenalty.penalty(1.0, cnvt(x)), x)
+    val = RegisterPenalty.penalty!(g, ϕs, 1.0)
+    gfx = ForwardDiff.gradient(x -> RegisterPenalty.penalty(cnvt(x), 1.0), x)
     @test vec(g) ≈ gfx
+
+    # vec2ϕs accepts non-Array AbstractArrays (e.g., views)
+    xpad = [x; zeros(5)]
+    ϕs_view = RegisterPenalty.vec2ϕs(view(xpad, 1:length(x)), gsize, n, nodes)
+    @test RegisterPenalty.penalty(ϕs_view, 1.0) ≈ RegisterPenalty.penalty(ϕs, 1.0)
 
     # Wrong-size SVector gradient → DimensionMismatch (flat-array path hits ArgumentError earlier,
     # so use an SVector array to reach the length check in the general method)
     g_bad = [SVector(0.0, 0.0) for _ in 1:7]
-    @test_throws DimensionMismatch RegisterPenalty.penalty!(g_bad, 1.0, ϕs)
+    @test_throws DimensionMismatch RegisterPenalty.penalty!(g_bad, ϕs, 1.0)
 
     ### Total penalty, with a temporal penalty
     Qs = cat(Matrix{Float64}(I, 2, 2), zeros(2, 2), Matrix{Float64}(I, 2, 2), dims = 3)
